@@ -1,109 +1,85 @@
-# HMM Discovery — Deployment Guide
+# HMM Discovery Deployment Guide
 
-A Shiny-for-Python web application for profile-HMM-based protein family
-discovery. Works for any protein family (phage, bacterial, eukaryotic).
+HMM Discovery is a no-code Shiny-for-Python app for profile-HMM protein-family discovery, database search, hit interpretation, synteny analysis, and reproducible export.
 
----
+Project website: <https://mbaffour.github.io/hmm-discovery/>
 
-## 1. Install
+Repository: <https://github.com/mbaffour/hmm-discovery>
 
-Requires a working `conda` (miniforge / miniconda / anaconda).
+## Local Conda/Mamba Deployment
 
 ```bash
+git clone https://github.com/mbaffour/hmm-discovery.git
 cd hmm-discovery
-bash install_all_tools.sh
+conda env create -f environment.yml
+conda activate hmm-discovery
+./run_app.sh
 ```
 
-This creates two conda environments:
+Open <http://127.0.0.1:8081>.
 
-| Env          | Purpose                                                        |
-|--------------|---------------------------------------------------------------|
-| `hmm_env`    | App runtime + all fast binaries (mafft, hmmer, iqtree, …)      |
-| `meme-tools` | Python-3.11 helper for MEME, clinker, ghostscript (symlinked)  |
+The app is designed so ordinary users do not need to write code after launch. They can create projects, load FASTA/GenBank files, build HMMs, select databases, run single-genome scans, use exhaustive six-frame ORFs, summarize runs, clear caches, choose export folders, and package results from the interface.
 
-The script finishes with a verification table — every tool should read `OK`.
-
-### Tools installed
-
-**Required:** mafft, trimal, hmmbuild, hmmsearch
-**Optional (all installed):** clustalo, iqtree, prodigal, cd-hit, mmseqs2,
-meme, fimo, clinker, ghostscript (`gs`), pygenomeviz (Python pkg)
-
-**Not installed by default** (licensed / very large — graceful fallback in app):
-foldseek, phobius, tmhmm, diamond.
-
----
-
-## 2. Launch
+## Docker Deployment
 
 ```bash
-~/miniforge3/envs/hmm_env/bin/shiny run app.py --port 8081 --host 127.0.0.1
+docker build -t hmm-discovery .
+docker run --rm -p 8081:8081 hmm-discovery
 ```
 
-Then open http://127.0.0.1:8081
-
-For production, put it behind a reverse proxy (nginx) and run with
-`shiny run --host 0.0.0.0`. For multiple concurrent users, run several
-workers behind the proxy (each Shiny process is single-session-stateful per
-websocket but the app keeps all state on disk per project folder).
-
----
-
-## 3. How it works
-
-Each **project** is a folder on disk. All inputs, intermediates, and outputs
-live there, and pipeline progress is tracked in `.pipeline_state.json`, so a
-project can be closed and resumed at any time.
-
-The workflow is 9 steps, shown as tabs:
-
-1. **Input** — load seed FASTA (protein or nucleotide; ORF prediction for NT)
-2. **MSA** — MAFFT/Clustal Omega alignment + trimAl trimming
-3. **HMM Build** — hmmbuild profile + logo + seed self-recovery test
-4. **Search** — hmmsearch vs local / streamed databases (6-frame for NT DBs), plus optional Pfam/VOGDB hmmscan annotation
-5. **Calibrate** — score thresholds vs positive/negative controls
-6. **Iterate** — expand seeds with high-confidence hits, rebuild, repeat
-7. **Results** — interactive hits table, score/database/tier charts
-8. **Analysis** — synteny, taxonomy, IQ-TREE phylogeny, presence/absence
-   matrix, CD-HIT/MMseqs clustering, MEME/FIMO motifs, structure
-9. **Export** — TSVs, FASTAs, multi-format figures (PNG/SVG/PDF), methods
-   paragraph, reproducibility JSON, and a one-click ZIP of everything
-
-The sidebar shows live step completion and supports creating new projects,
-loading recent projects, saving session notes, and resetting a project.
-
----
-
-## 4. Verifying a deployment
-
-Run the bundled checks against any project folder:
+For shared machines, mount a persistent project directory:
 
 ```bash
-~/miniforge3/envs/hmm_env/bin/python - <<'PY'
-import sys; sys.path.insert(0, ".")
-from pipeline.utils import ensure_tools_on_path, find_tool
-ensure_tools_on_path()
-need = ["mafft","trimal","hmmbuild","hmmsearch","iqtree","clustalo",
-        "prodigal","cd-hit","mmseqs","meme","fimo","clinker","gs"]
-missing = [t for t in need if not find_tool(t)]
-print("All tools present" if not missing else f"MISSING: {missing}")
-PY
+docker run --rm -p 8081:8081 \
+  -v "$PWD/projects:/app/projects" \
+  hmm-discovery
 ```
 
----
+## Website And Blog Deployment
 
-## 5. Notes
+The public website, blog-style landing page, interactive guide, and presentation links live under `www/`.
 
-* The app augments `PATH` at startup (`ensure_tools_on_path`) so in-process
-  libraries (toyplot→ghostscript, pygenomeviz) find the conda binaries.
-* PNG phylogenetic-tree export needs `gs`; SVG always works without it.
-* Streaming database search (INPHARED, RefSeq, SwissProt) needs internet but
-  no local disk — data streams through the search pipeline.
-* VOGDB VFAM is the preferred viral ortholog annotation layer. It downloads
-  VOGDB release 230 HMMs and annotations, runs `hmmpress`, then scans hit
-  proteins with `hmmscan`.
-* Acknowledgements and run-specific citation guidance live in
-  `ACKNOWLEDGEMENTS.md`, `CITATION.cff`, `reports/METHODS_TEXT.txt`, and
-  `reports/reproducibility.json`.
-* Synteny neighbourhood fetching uses NCBI Entrez (needs internet + an email
-  address) or local GenBank files.
+GitHub Pages is deployed automatically by `.github/workflows/pages.yml` whenever `main` is pushed. The workflow publishes `www/` to:
+
+<https://mbaffour.github.io/hmm-discovery/>
+
+## Deployment Checks
+
+Before publishing a new release:
+
+```bash
+python3 -m compileall -q app.py core ui pipeline databases scripts
+python3 scripts/run_all_database_benchmark.py --dry-run --preset all --out /tmp/hmm-discovery-dryrun
+```
+
+Expected dry-run registry:
+
+- INPHARED genomes
+- INPHARED proteins
+- SwissProt
+- RefSeq viral proteins
+- RefSeq viral genomes
+- Gut Phage Database (GPD)
+- GVD-AVrC
+- RefSeq bacterial proteins
+- Pfam sequences
+- Pfam domain scan
+- VOGDB VFAM annotation
+
+RefSeq bacterial proteins should expand to the current NCBI chunk count recorded by the dry run.
+
+## Data Hygiene
+
+Do not commit:
+
+- private seed FASTA files
+- unpublished genomes
+- downloaded database caches
+- project result folders
+- logs, PID files, HMM build outputs, tblout/domtblout files, or export ZIPs
+
+The repository includes only synthetic demo data and public documentation assets.
+
+## Production Notes
+
+For institutional deployment, run the app behind authentication and a reverse proxy, mount a persistent project volume, and keep large database caches outside the Git repository. Each run should export `METHODS_TEXT.txt`, `reproducibility.json`, `RUN_SUMMARY.md`, database provenance tables, and the result ZIP for auditability.

@@ -287,7 +287,7 @@ def panel_ui() -> ui.TagChild:
                         ui.tags.div(
                             ui.tags.strong("Benchmark caveat: "),
                             ui.tags.span(
-                                "Use six-frame for gp75-like discovery claims. Prodigal is useful as a speed/annotation baseline, "
+                                "Use six-frame for unusual-gene discovery claims. Prodigal is useful as a speed/annotation baseline, "
                                 "but it can miss short, overlapping, noncanonical, or weird genes."
                             ),
                             class_="alert alert-warning py-2",

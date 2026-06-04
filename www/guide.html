@@ -266,9 +266,12 @@ docker run --rm -p 8081:8081 hmm-discovery</pre>
         <div class="card"><h3>Single genome target</h3><p>Register one nucleotide FASTA as a custom database when you want to ask whether a specific genome contains the family.</p></div>
         <div class="card"><h3>Weird-gene mode</h3><p>Use exhaustive six-frame ORFs for short, overlapping, noncanonical, or annotation-missed genes. Use Prodigal for faster conventional gene prediction.</p></div>
         <div class="card"><h3>Discovery run</h3><p>INPHARED genomes and RefSeq viral genomes search translated proteins from nucleotide FASTA.</p></div>
+        <div class="card"><h3>Gut Phage Database</h3><p>Use GPD when your biological question involves gut phages or when reviewers may expect gut-viral breadth beyond curated references.</p></div>
+        <div class="card"><h3>GVD-AVrC</h3><p>Use GVD-AVrC for large-scale gut and environmental viral diversity. It is slower and larger, so run it after the HMM passes smaller checks.</p></div>
         <div class="card"><h3>Viral annotation</h3><p>Use VOGDB VFAM for preferred viral ortholog/family annotation. It uses HMMER hmmscan and writes <code>vogdb_vfam_annotation.tsv</code>.</p></div>
         <div class="card"><h3>Reliability</h3><p>Large public files are cached resumably before local search to survive network interruptions.</p></div>
       </div>
+      <p>Gut viral breadth: <strong>GPD</strong> is useful for gut-phage discovery claims, while <strong>GVD-AVrC</strong> is the larger breadth check for gut/environmental viral catalogues. They are discovery databases, not replacement annotation layers; pair them with VOGDB/Pfam and synteny for interpretation.</p>
       <p>VOGDB source: release 230 / RefSeq release 230, 39,585 VFAMs, <code>https://fileshare.csb.univie.ac.at/vog/vog230/vfam.hmm.tar.gz</code> and <code>https://fileshare.csb.univie.ac.at/vog/vog230/vfam.annotations.tsv.gz</code>.</p>
     </section>
 

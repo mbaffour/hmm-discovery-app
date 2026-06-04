@@ -29,6 +29,10 @@ HMM Discovery is a Python Shiny application for discovering and analyzing distan
 
 This deployment bundle is sanitized for public release. It contains no private research project data, no downloaded databases, and no prior run outputs. The included FASTA in `example_data/demo_protein_family.fasta` is synthetic demonstration data.
 
+Project website and interactive guide: <https://mbaffour.github.io/hmm-discovery/>
+
+GitHub repository: <https://github.com/mbaffour/hmm-discovery>
+
 ## What The App Does
 
 - Accepts protein FASTA, nucleotide FASTA, GenBank, or folders of sequence files.
