@@ -780,6 +780,21 @@ def server(input: Inputs, output: Outputs, session: Session):
                 )
             )
 
+        # Show a persistent banner when a search is actively running
+        search_status = state.get_status("search") if state else "pending"
+        if search_status == "running":
+            items.append(
+                ui.tags.div(
+                    "🔄 Search running — results saving to disk",
+                    class_="small text-warning d-block px-2 py-1 mt-1",
+                    style=(
+                        "background:rgba(245,158,11,0.14);"
+                        "border-radius:4px;"
+                        "border-left:3px solid #f59e0b;"
+                    ),
+                )
+            )
+
         return ui.tags.div(*items, class_="step-nav mt-1")
 
     # ── Periodic state refresh (keeps sidebar nav in sync) ──────────────

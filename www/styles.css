@@ -26,18 +26,19 @@ body.shiny-busy {
   cursor: wait;
 }
 
-/* Animated progress bar at the very top — visible but non-intrusive */
+/* Animated progress bar at the very top — prominent when running */
 body.shiny-busy::before {
   content: '';
   position: fixed;
   top: 0; left: 0;
-  height: 3px;
+  height: 4px;
   width: 100%;
-  background: linear-gradient(90deg, #375a7f 0%, #3498db 40%, #00bc8c 70%, #375a7f 100%);
+  background: linear-gradient(90deg, #14b8a6 0%, #60a5fa 40%, #f59e0b 70%, #14b8a6 100%);
   background-size: 300% 100%;
   animation: hmm-progress 1.4s ease-in-out infinite;
   z-index: 99999;
   pointer-events: none;
+  box-shadow: 0 0 8px rgba(20,184,166,0.55);
 }
 @keyframes hmm-progress {
   0%   { background-position: 100% 0 }

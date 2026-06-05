@@ -299,6 +299,79 @@ def register_outputs(
     # Accumulates log lines from all db runners
     _search_log_lines: reactive.Value[list[str]] = reactive.value([])
 
+    # ---- Recover search state from disk on session start --------------------
+    def _recover_search_state() -> None:
+        """Restore _db_status and _search_log_lines from tblout files on disk.
+
+        Called once on session start so that reconnecting mid-search (or after
+        completion) shows what was found rather than "No searches started yet".
+        """
+        try:
+            if state is None:
+                return
+            search_step_status = state.get_status("search")
+            if search_step_status not in ("running", "complete", "failed"):
+                return
+            pd_ = proj_dir_rv.get() if proj_dir_rv is not None else None
+            if not pd_:
+                return
+            search_dir = Path(pd_) / "search_results"
+            if not search_dir.exists():
+                return
+
+            # Read persistent log first (written during run)
+            log_file = search_dir / "search_log.txt"
+            if log_file.exists():
+                saved_lines = [l.rstrip() for l in log_file.read_text().splitlines()]
+                if saved_lines:
+                    _search_log_lines.set(saved_lines[-200:])  # keep last 200 lines
+
+            # Scan tblout files → rebuild per-db status
+            recovered: dict = {}
+            for tblout in sorted(search_dir.glob("*.tblout")):
+                db_name = tblout.stem
+                try:
+                    lines = [
+                        l for l in tblout.read_text().splitlines()
+                        if l.strip() and not l.startswith("#")
+                    ]
+                    hits = len(lines)
+                except Exception:
+                    hits = 0
+                recovered[db_name] = {
+                    "status": f"✅ Complete (recovered — {hits} hits)",
+                    "hits": hits,
+                    "elapsed": "—",
+                    "_recovered": True,
+                }
+            if recovered:
+                _db_status.set(recovered)
+                recovery_msg = (
+                    f"[Session recovered from disk — {len(recovered)} database(s) found]"
+                )
+                cur_log = list(_search_log_lines.get())
+                if not cur_log or cur_log[0] != recovery_msg:
+                    _search_log_lines.set([recovery_msg] + cur_log)
+        except Exception:
+            pass  # never block the session from starting
+
+    _recover_search_state()
+
+    # ---- Persistent log helper -----------------------------------------------
+    def _log_to_disk(lines: list) -> None:
+        """Append log lines to search_log.txt so they survive session reconnects."""
+        try:
+            pd_ = proj_dir_rv.get() if proj_dir_rv is not None else None
+            if not pd_:
+                return
+            log_path = Path(pd_) / "search_results" / "search_log.txt"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            with log_path.open("a") as fh:
+                for line in lines:
+                    fh.write(str(line) + "\n")
+        except Exception:
+            pass
+
     # Tracks inline download progress per db name
     _download_status: reactive.Value[dict] = reactive.value({})
 
@@ -679,6 +752,8 @@ def register_outputs(
         cur = dict(_db_status.get())
         cur[db_name] = {"status": "running", "hits": None}
         _db_status.set(cur)
+        _log_to_disk([f"\n=== {db_name} — STARTED ==="
+                      f" ({__import__('datetime').datetime.now().strftime('%H:%M:%S')}) ==="])
 
         out_dir = _Path(proj_dir) / "search_results"
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -1122,8 +1197,10 @@ for r in SeqIO.parse(sys.stdin, 'fasta'):
             _db_status.set(cur)
 
             lines = list(_search_log_lines.get())
-            lines.append(f"  TOTAL: {total_hits} hits in {int(elapsed)}s across {len(file_urls)} files")
+            completion_line = f"  TOTAL: {total_hits} hits in {int(elapsed)}s across {len(file_urls)} files"
+            lines.append(completion_line)
             _search_log_lines.set(lines)
+            _log_to_disk([completion_line, f"=== {db_name} — COMPLETE ==="])
             return   # done — streaming search complete
 
         import time as _time
@@ -2058,8 +2135,35 @@ for r in SeqIO.parse(sys.stdin, 'fasta'):
                     class_="alert alert-danger py-2 px-3 mb-3",
                 )
             if done:
+                # Check if results were recovered from disk rather than run live
+                any_recovered = any(
+                    info.get("_recovered") for info in statuses.values()
+                )
+                if any_recovered:
+                    return ui.tags.div(
+                        ui.tags.div(
+                            ui.tags.span("⚠️ Session reconnected", class_="fs-6 fw-bold text-warning"),
+                            ui.tags.span(" — results recovered from disk", class_="text-light"),
+                        ),
+                        ui.tags.div(
+                            ui.tags.small(
+                                f"Found {len(done)} completed database(s). "
+                                "HMMER may still be running in the background. "
+                                "Refresh the page to check for new completions. "
+                                "Go to Step 7 → Results to review hits.",
+                                class_="text-muted",
+                            ),
+                        ),
+                        class_="alert alert-warning py-2 px-3 mb-3",
+                    )
                 return ui.tags.div(
                     ui.tags.span("✅ All searches complete", class_="fs-6 fw-bold text-success"),
+                    ui.tags.div(
+                        ui.tags.small(
+                            f"Completed {len(done)} database(s). Go to Step 7 → Results to review hits.",
+                            class_="text-muted",
+                        ),
+                    ),
                     class_="alert alert-success py-2 px-3 mb-3",
                 )
             return ui.tags.span("")
@@ -2096,6 +2200,25 @@ for r in SeqIO.parse(sys.stdin, 'fasta'):
         reactive.invalidate_later(2)
         statuses = _db_status.get()
         if not statuses:
+            # Check if a search was previously run (state = complete/running/failed)
+            search_was_run = (
+                state is not None
+                and state.get_status("search") in ("running", "complete", "failed")
+            )
+            if search_was_run:
+                return ui.tags.div(
+                    ui.tags.p(
+                        "⚠️ Search results not yet loaded in this session.",
+                        class_="text-warning mb-1 fw-bold",
+                    ),
+                    ui.tags.small(
+                        "The pipeline state shows a search was run. "
+                        "Refreshing the page will recover completed results from disk. "
+                        "If the search is still running in the background, results will "
+                        "appear here once it completes.",
+                        class_="text-muted",
+                    ),
+                )
             return ui.tags.p(
                 "No searches started yet. Select databases above and click ▶ Run Selected.",
                 class_="text-muted",
