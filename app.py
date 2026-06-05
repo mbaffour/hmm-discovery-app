@@ -82,6 +82,7 @@ except Exception as _e:
 # UI panels
 from ui.components import (
     filesystem_picker_ui,
+    register_native_path_dialog,
     register_filesystem_picker,
     stat_card,
     tool_badge,
@@ -139,6 +140,10 @@ def make_ui():
                 ),
                 ui.layout_columns(
                     ui.input_action_button(
+                        "choose_proj_dir_native", "Browse...",
+                        class_="btn btn-primary btn-sm w-100 mt-1",
+                    ),
+                    ui.input_action_button(
                         "load_project", "📂 Load",
                         class_="btn btn-outline-light btn-sm w-100 mt-1",
                     ),
@@ -147,8 +152,9 @@ def make_ui():
                         class_="btn btn-outline-danger btn-sm w-100 mt-1",
                         title="Delete all pipeline outputs and start this project over",
                     ),
-                    col_widths=[7, 5],
+                    col_widths=[4, 4, 4],
                 ),
+                ui.output_ui("choose_proj_dir_native_status"),
                 ui.tags.small(
                     "One folder per protein family. Reset clears all outputs but keeps your input file.",
                     class_="text-white-50",
@@ -475,6 +481,19 @@ def server(input: Inputs, output: Outputs, session: Session):
         initial_dir=Path.home() / "Documents" / "HMM_Projects",
         project_dir_getter=lambda: proj_dir_rv.get(),
         allow_create_dir=True,
+    )
+    register_native_path_dialog(
+        input,
+        output,
+        render,
+        reactive,
+        session,
+        button_id="choose_proj_dir_native",
+        target_input_id="proj_dir",
+        mode="dir",
+        title="Choose HMM Discovery project folder",
+        status_id="choose_proj_dir_native_status",
+        start_dir_getter=lambda: proj_dir_rv.get(),
     )
 
     @reactive.effect

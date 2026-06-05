@@ -133,11 +133,13 @@ advanced automation.
 
 ## Local File And Folder Picking
 
-Every app field that needs a local file or folder has a browser-based picker.
-Users can navigate from Home, Documents, Desktop, the current project folder, or
-parent folders; open subfolders; select files; choose the current folder; and
-create folders where that makes sense. Manual path typing remains available as
-a fallback.
+Every app field that needs a local file or folder has a Browse-style chooser.
+On local desktop installs, **Choose File...** and **Choose Folder...** open the
+native operating-system picker and fill the app field automatically. The app
+also keeps an in-page navigator as a fallback, where users can browse from Home,
+Documents, Desktop, the current project folder, or parent folders; open
+subfolders; select files; choose the current folder; and create folders where
+that makes sense. Manual path typing remains available as a fallback.
 
 Covered paths include the project folder, Step 1 input FASTA/GenBank/folder,
 custom database or single-genome FASTA/GenBank path, benchmark FASTA, benchmark

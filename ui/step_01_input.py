@@ -16,6 +16,7 @@ from .components import (
     guidance_callout,
     step_guidance,
     log_panel,
+    register_native_path_dialog,
     register_filesystem_picker,
     section_header,
     stat_badge,
@@ -65,6 +66,13 @@ def panel_ui() -> ui.TagChild:
                         "folder_path",
                         "Local file or folder path",
                         placeholder="/path/to/sequences.fasta or /path/to/genomes/",
+                    ),
+                    ui.tags.div(
+                        ui.input_action_button("choose_input_file_native", "Choose File...", class_="btn btn-primary btn-sm me-1 mb-1"),
+                        ui.input_action_button("choose_input_folder_native", "Choose Folder...", class_="btn btn-outline-primary btn-sm me-1 mb-1"),
+                        ui.output_ui("choose_input_file_native_status"),
+                        ui.output_ui("choose_input_folder_native_status"),
+                        class_="mb-2",
                     ),
                     filesystem_picker_ui(
                         "input_path_picker",
@@ -162,6 +170,32 @@ def register_outputs(
         initial_dir=Path.home() / "Documents",
         project_dir_getter=lambda: proj_dir_rv.get(),
         file_suffixes={".fasta", ".fa", ".faa", ".fna", ".gz", ".gb", ".gbk"},
+    )
+    register_native_path_dialog(
+        input,
+        output,
+        render,
+        reactive,
+        session,
+        button_id="choose_input_file_native",
+        target_input_id="folder_path",
+        mode="file",
+        title="Choose input FASTA or GenBank file",
+        status_id="choose_input_file_native_status",
+        start_dir_getter=lambda: proj_dir_rv.get(),
+    )
+    register_native_path_dialog(
+        input,
+        output,
+        render,
+        reactive,
+        session,
+        button_id="choose_input_folder_native",
+        target_input_id="folder_path",
+        mode="dir",
+        title="Choose folder of sequence files",
+        status_id="choose_input_folder_native_status",
+        start_dir_getter=lambda: proj_dir_rv.get(),
     )
 
     # ---- analyze button event -----------------------------------------------

@@ -19,6 +19,7 @@ from .components import (
     guidance_callout,
     learning_card,
     log_panel,
+    register_native_path_dialog,
     register_filesystem_picker,
     section_header,
     stat_badge,
@@ -130,6 +131,13 @@ def panel_ui() -> ui.TagChild:
                                     "Local file path (optional)",
                                     placeholder="/path/to/genome.fna or database.faa",
                                 ),
+                                ui.tags.div(
+                                    ui.input_action_button("choose_custom_db_file_native", "Choose File...", class_="btn btn-primary btn-sm me-1 mb-1"),
+                                    ui.input_action_button("choose_custom_db_folder_native", "Choose Folder...", class_="btn btn-outline-primary btn-sm me-1 mb-1"),
+                                    ui.output_ui("choose_custom_db_file_native_status"),
+                                    ui.output_ui("choose_custom_db_folder_native_status"),
+                                    class_="mb-2",
+                                ),
                                 filesystem_picker_ui(
                                     "custom_db_path_picker",
                                     "Database File Picker",
@@ -238,6 +246,11 @@ def panel_ui() -> ui.TagChild:
                                     value="example_data/demo_protein_family.fasta",
                                     placeholder="/path/to/seed_sequences.fasta",
                                 ),
+                                ui.tags.div(
+                                    ui.input_action_button("choose_benchmark_fasta_native", "Choose File...", class_="btn btn-primary btn-sm me-1 mb-1"),
+                                    ui.output_ui("choose_benchmark_fasta_native_status"),
+                                    class_="mb-2",
+                                ),
                                 filesystem_picker_ui(
                                     "benchmark_fasta_picker",
                                     "Benchmark FASTA Picker",
@@ -255,6 +268,11 @@ def panel_ui() -> ui.TagChild:
                                     "Benchmark output folder",
                                     value=str(Path.home() / "Documents" / "HMM-Discovery-Benchmark"),
                                     placeholder="/path/to/benchmark_outputs",
+                                ),
+                                ui.tags.div(
+                                    ui.input_action_button("choose_benchmark_out_native", "Choose Folder...", class_="btn btn-primary btn-sm me-1 mb-1"),
+                                    ui.output_ui("choose_benchmark_out_native_status"),
+                                    class_="mb-2",
                                 ),
                                 filesystem_picker_ui(
                                     "benchmark_out_picker",
@@ -436,6 +454,32 @@ def register_outputs(
         project_dir_getter=lambda: proj_dir_rv.get(),
         file_suffixes={".fasta", ".fa", ".faa", ".fna", ".gz", ".gb", ".gbk"},
     )
+    register_native_path_dialog(
+        input,
+        output,
+        render,
+        reactive,
+        session,
+        button_id="choose_custom_db_file_native",
+        target_input_id="custom_db_path",
+        mode="file",
+        title="Choose custom database or single-genome file",
+        status_id="choose_custom_db_file_native_status",
+        start_dir_getter=lambda: proj_dir_rv.get(),
+    )
+    register_native_path_dialog(
+        input,
+        output,
+        render,
+        reactive,
+        session,
+        button_id="choose_custom_db_folder_native",
+        target_input_id="custom_db_path",
+        mode="dir",
+        title="Choose custom database folder",
+        status_id="choose_custom_db_folder_native_status",
+        start_dir_getter=lambda: proj_dir_rv.get(),
+    )
     register_filesystem_picker(
         input,
         output,
@@ -449,6 +493,19 @@ def register_outputs(
         project_dir_getter=lambda: proj_dir_rv.get(),
         file_suffixes={".fasta", ".fa", ".faa", ".fna", ".gz"},
     )
+    register_native_path_dialog(
+        input,
+        output,
+        render,
+        reactive,
+        session,
+        button_id="choose_benchmark_fasta_native",
+        target_input_id="benchmark_fasta",
+        mode="file",
+        title="Choose benchmark FASTA",
+        status_id="choose_benchmark_fasta_native_status",
+        start_dir_getter=lambda: proj_dir_rv.get(),
+    )
     register_filesystem_picker(
         input,
         output,
@@ -461,6 +518,19 @@ def register_outputs(
         initial_dir=Path.home() / "Documents",
         project_dir_getter=lambda: proj_dir_rv.get(),
         allow_create_dir=True,
+    )
+    register_native_path_dialog(
+        input,
+        output,
+        render,
+        reactive,
+        session,
+        button_id="choose_benchmark_out_native",
+        target_input_id="benchmark_out",
+        mode="dir",
+        title="Choose benchmark output folder",
+        status_id="choose_benchmark_out_native_status",
+        start_dir_getter=lambda: Path.home() / "Documents",
     )
 
     # ── Auto-install live progress card ────────────────────────────────────

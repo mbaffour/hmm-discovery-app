@@ -14,7 +14,15 @@ from pathlib import Path
 
 from shiny import ui
 
-from .components import click_go_strip, guidance_callout, learning_card, step_guidance, section_header, stat_card
+from .components import (
+    click_go_strip,
+    guidance_callout,
+    learning_card,
+    register_native_path_dialog,
+    step_guidance,
+    section_header,
+    stat_card,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -237,11 +245,19 @@ def panel_ui() -> ui.TagChild:
 
                 ui.tags.hr(),
                 ui.layout_columns(
-                    ui.input_text(
-                        "export_dest_dir",
-                        "Choose final export folder (ZIP destination)",
-                        value=str(Path.home() / "Documents" / "HMM-Discovery-Exports"),
-                        placeholder="/path/to/save/final/export",
+                    ui.tags.div(
+                        ui.input_text(
+                            "export_dest_dir",
+                            "Choose final export folder (ZIP destination)",
+                            value=str(Path.home() / "Documents" / "HMM-Discovery-Exports"),
+                            placeholder="/path/to/save/final/export",
+                        ),
+                        ui.input_action_button(
+                            "choose_export_dest_native",
+                            "Choose Folder...",
+                            class_="btn btn-primary btn-sm me-1 mb-1",
+                        ),
+                        ui.output_ui("choose_export_dest_native_status"),
                     ),
                     ui.tags.div(
                         ui.input_action_button(
@@ -699,6 +715,20 @@ def register_outputs(input, output, render, reactive, session, **kwargs):
     _zip_saved_message: reactive.Value[str] = reactive.value("")
     _folder_browser_dir: reactive.Value[Path] = reactive.value(Path.home() / "Documents" / "HMM-Discovery-Exports")
     _folder_browser_message: reactive.Value[str] = reactive.value("")
+
+    register_native_path_dialog(
+        input,
+        output,
+        render,
+        reactive,
+        session,
+        button_id="choose_export_dest_native",
+        target_input_id="export_dest_dir",
+        mode="dir",
+        title="Choose final export folder",
+        status_id="choose_export_dest_native_status",
+        start_dir_getter=lambda: _proj_dir() or (Path.home() / "Documents"),
+    )
 
     def _nearest_existing_dir(path: Path) -> Path:
         """Return path if it exists as a directory, otherwise its nearest existing parent."""

@@ -149,7 +149,9 @@ Keep project folders, run outputs, downloaded databases, and unpublished sequenc
 
 ## Local File And Folder Pickers
 
-Manual path typing is optional. Every app field that needs a local file or folder also has an in-app picker:
+Manual path typing is optional. Every app field that needs a local file or folder also has a **Choose File...** or **Choose Folder...** button. On a local desktop install, those buttons open the native file/folder picker and fill the app field automatically.
+
+The app also includes an in-page folder navigator as a fallback for environments where the native picker is unavailable.
 
 - Sidebar project folder
 - Step 1 input FASTA/GenBank file or batch folder
@@ -159,7 +161,7 @@ Manual path typing is optional. Every app field that needs a local file or folde
 - Step 8 synteny local GenBank folder
 - Step 9 final export ZIP folder
 
-The picker can start from Home, Documents, Desktop, the current project folder, or the parent folder. It can open subfolders, select files, choose the current folder, and create folders where a folder destination is expected.
+The fallback navigator can start from Home, Documents, Desktop, the current project folder, or the parent folder. It can open subfolders, select files, choose the current folder, and create folders where a folder destination is expected.
 
 ## Common Startup Problems
 

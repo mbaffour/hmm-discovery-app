@@ -3,6 +3,9 @@ ui/components.py — Shared UI building blocks used across all step panels.
 """
 from __future__ import annotations
 
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -230,6 +233,134 @@ def filesystem_picker_ui(
         *create_controls,
         class_=class_,
     )
+
+
+def _choose_native_path(mode: str, title: str, start_dir: Path | str | None = None) -> Path | None:
+    """Open a native file/folder chooser on the machine running the Shiny app."""
+    mode = "dir" if mode == "folder" else mode
+    start = Path(start_dir or Path.home()).expanduser()
+    if start.is_file():
+        start = start.parent
+    if not start.exists():
+        start = Path.home()
+
+    if sys.platform == "darwin":
+        prompt = title.replace('"', '\\"')
+        start_posix = str(start).replace('"', '\\"')
+        target = "folder" if mode == "dir" else "file"
+        script = (
+            f'set startFolder to POSIX file "{start_posix}" as alias\n'
+            f'set chosenItem to choose {target} with prompt "{prompt}" default location startFolder\n'
+            "POSIX path of chosenItem"
+        )
+        proc = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+        if proc.returncode != 0:
+            return None
+        picked = proc.stdout.strip()
+        return Path(picked) if picked else None
+
+    if sys.platform.startswith("linux"):
+        if mode == "dir":
+            if shutil.which("zenity"):
+                cmd = ["zenity", "--file-selection", "--directory", "--title", title, "--filename", str(start) + "/"]
+            elif shutil.which("kdialog"):
+                cmd = ["kdialog", "--getexistingdirectory", str(start), "--title", title]
+            else:
+                return None
+        else:
+            if shutil.which("zenity"):
+                cmd = ["zenity", "--file-selection", "--title", title, "--filename", str(start) + "/"]
+            elif shutil.which("kdialog"):
+                cmd = ["kdialog", "--getopenfilename", str(start), "--title", title]
+            else:
+                return None
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            return None
+        picked = proc.stdout.strip()
+        return Path(picked) if picked else None
+
+    if sys.platform.startswith("win"):
+        escaped_start = str(start).replace("'", "''")
+        escaped_title = title.replace("'", "''")
+        if mode == "dir":
+            ps = (
+                "Add-Type -AssemblyName System.Windows.Forms; "
+                "$dlg = New-Object System.Windows.Forms.FolderBrowserDialog; "
+                f"$dlg.Description = '{escaped_title}'; "
+                f"$dlg.SelectedPath = '{escaped_start}'; "
+                "if ($dlg.ShowDialog() -eq 'OK') { $dlg.SelectedPath }"
+            )
+        else:
+            ps = (
+                "Add-Type -AssemblyName System.Windows.Forms; "
+                "$dlg = New-Object System.Windows.Forms.OpenFileDialog; "
+                f"$dlg.Title = '{escaped_title}'; "
+                f"$dlg.InitialDirectory = '{escaped_start}'; "
+                "if ($dlg.ShowDialog() -eq 'OK') { $dlg.FileName }"
+            )
+        proc = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True)
+        if proc.returncode != 0:
+            return None
+        picked = proc.stdout.strip()
+        return Path(picked) if picked else None
+
+    return None
+
+
+def register_native_path_dialog(
+    input,
+    output,
+    render,
+    reactive,
+    session,
+    *,
+    button_id: str,
+    target_input_id: str,
+    mode: str,
+    title: str,
+    status_id: str | None = None,
+    start_dir_getter=None,
+) -> None:
+    """Wire a Browse-style button to a native local file/folder chooser."""
+    status = reactive.value("")
+
+    def _start_dir() -> Path:
+        if start_dir_getter is not None:
+            try:
+                value = start_dir_getter()
+                if value:
+                    return Path(value).expanduser()
+            except Exception:
+                pass
+        try:
+            current = getattr(input, target_input_id)()
+            if current:
+                path = Path(current).expanduser()
+                return path.parent if path.is_file() else path
+        except Exception:
+            pass
+        return Path.home() / "Documents"
+
+    if status_id:
+        @output(id=status_id)
+        @render.ui
+        def _native_status():
+            msg = status.get()
+            if not msg:
+                return ui.tags.span("")
+            cls = "text-success" if msg.startswith("Selected:") else "text-muted"
+            return ui.tags.small(msg, class_=f"{cls} d-block mt-1")
+
+    @reactive.effect
+    @reactive.event(getattr(input, button_id))
+    async def _open_dialog():
+        picked = _choose_native_path(mode, title, _start_dir())
+        if picked is None:
+            status.set("No selection made, or native dialog is unavailable in this environment.")
+            return
+        ui.update_text(target_input_id, value=str(picked), session=session)
+        status.set(f"Selected: {picked}")
 
 
 def register_filesystem_picker(

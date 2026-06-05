@@ -19,6 +19,7 @@ from .components import (
     learning_card,
     step_guidance,
     log_panel,
+    register_native_path_dialog,
     register_filesystem_picker,
     section_header,
     stat_card,
@@ -161,6 +162,11 @@ def panel_ui() -> ui.TagChild:
                                     "synteny_local_gb_dir",
                                     "Local GenBank folder (optional)",
                                     placeholder="/path/to/genbank_files/",
+                                ),
+                                ui.tags.div(
+                                    ui.input_action_button("choose_synteny_gb_dir_native", "Choose Folder...", class_="btn btn-primary btn-sm me-1 mb-1"),
+                                    ui.output_ui("choose_synteny_gb_dir_native_status"),
+                                    class_="mb-2",
                                 ),
                                 filesystem_picker_ui(
                                     "synteny_gb_dir_picker",
@@ -585,6 +591,19 @@ def register_outputs(input, output, render, reactive, session, **kwargs):
         initial_dir=Path.home() / "Documents",
         project_dir_getter=_proj_dir,
         allow_create_dir=True,
+    )
+    register_native_path_dialog(
+        input,
+        output,
+        render,
+        reactive,
+        session,
+        button_id="choose_synteny_gb_dir_native",
+        target_input_id="synteny_local_gb_dir",
+        mode="dir",
+        title="Choose local GenBank folder",
+        status_id="choose_synteny_gb_dir_native_status",
+        start_dir_getter=_proj_dir,
     )
 
     async def _run_script(tab: str, cmd: list[str]):
