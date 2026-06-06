@@ -43,10 +43,16 @@ def _extra_paths() -> list[str]:
         Path("/opt/miniconda3"),
         Path("/usr/local/miniconda3"),
     ]:
-        for sub in ["bin", "envs/hmm_env/bin"]:
-            d = base / sub
-            if d.exists():
-                extras.append(str(d))
+        # Base conda bin
+        d = base / "bin"
+        if d.exists():
+            extras.append(str(d))
+        # Every named environment — catches meme-tools, hmm_env, etc.
+        envs_dir = base / "envs"
+        if envs_dir.is_dir():
+            for env_bin in sorted(envs_dir.glob("*/bin")):
+                if env_bin.is_dir():
+                    extras.append(str(env_bin))
     return extras
 
 

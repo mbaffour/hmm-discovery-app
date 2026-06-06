@@ -2005,6 +2005,18 @@ def build_neighborhood_genbanks(
             if prot_seq:
                 qualifiers["translation"] = [prot_seq]
 
+            # clinker expects a gene feature alongside each CDS to avoid
+            # "Could not find parent gene" warnings.
+            gene_qualifiers: dict = {}
+            if qualifiers.get("gene"):
+                gene_qualifiers["gene"] = qualifiers["gene"]
+            elif qualifiers.get("locus_tag"):
+                gene_qualifiers["gene"] = qualifiers["locus_tag"]
+            record.features.append(SeqFeature(
+                FeatureLocation(g_start, g_end, strand=strand_v),
+                type="gene",
+                qualifiers=gene_qualifiers,
+            ))
             feat = SeqFeature(
                 FeatureLocation(g_start, g_end, strand=strand_v),
                 type="CDS",
@@ -2063,7 +2075,11 @@ def run_clinker(
             log_callback(msg)
         return None
 
-    clinker_exe = shutil.which("clinker")
+    try:
+        from pipeline.utils import find_tool as _find_tool
+        clinker_exe = _find_tool("clinker")
+    except Exception:
+        clinker_exe = shutil.which("clinker")
     if not clinker_exe:
         if log_callback:
             log_callback(
@@ -2247,12 +2263,21 @@ def run_easyfig(
             log_callback("⚠️  No .gbk files found for EasyFig.")
         return None
 
-    easyfig_exe = (
-        shutil.which("easyfig")
-        or shutil.which("Easyfig.py")
-        or shutil.which("easyfig.py")
-        or shutil.which("EasyFig")
-    )
+    try:
+        from pipeline.utils import find_tool as _find_tool
+        easyfig_exe = (
+            _find_tool("easyfig")
+            or _find_tool("Easyfig.py")
+            or _find_tool("easyfig.py")
+            or _find_tool("EasyFig")
+        )
+    except Exception:
+        easyfig_exe = (
+            shutil.which("easyfig")
+            or shutil.which("Easyfig.py")
+            or shutil.which("easyfig.py")
+            or shutil.which("EasyFig")
+        )
     if not easyfig_exe:
         if log_callback:
             log_callback(
