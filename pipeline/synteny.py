@@ -152,14 +152,68 @@ def _short_label(value, max_len: int = 14) -> str:
     return text[: max_len - 1] + "…"
 
 
-def _gene_display_label(row, hit_label: str = "hit gene", max_len: int = 14) -> str:
-    """Prefer biological gene/locus names, then protein/accession IDs, then product."""
-    for key in ("gene_name", "gene", "locus_tag", "flank_gene_id", "protein_id", "target_name"):
-        value = _clean_label_value(row.get(key, "") if hasattr(row, "get") else "")
-        if value:
-            return _short_label(value, max_len=max_len)
+def _is_gp_or_gene_name(value: str) -> bool:
+    """True for readable gene/locus names like gp63, LD35_gp81, rpoB, etc.
+    False for cryptic protein accessions like UWJ04322.1, AHV82680.1."""
+    import re as _re
+    v = value.strip()
+    if not v:
+        return False
+    # gp-style: gp63, PP768_gp063, LD35_gp81
+    if _re.search(r'gp\d+', v, _re.IGNORECASE):
+        return True
+    # Named genes: rpoB, dnaA, terL, etc. (short, no dots, no version suffix)
+    if len(v) <= 10 and '.' not in v and not _re.match(r'^[A-Z]{2,3}\d{5,}', v):
+        return True
+    # Locus_tag with underscore: PhAPEC7_56, ECBP1_0058
+    if '_' in v and not _re.match(r'^[A-Z]{2,3}\d{5,}', v.split('_')[0]):
+        return True
+    return False
 
-    func = _clean_label_value(row.get("function", "") if hasattr(row, "get") else "")
+
+def _gene_display_label(row, hit_label: str = "hit gene", max_len: int = 14) -> str:
+    """Build a readable gene label.
+
+    Priority:
+    1. Readable gene/locus name (gp-style, short gene symbols) from gene_name
+    2. Informative function (not 'hypothetical protein')
+    3. gp-style name from flank_gene_id or protein_id
+    4. Any gene_name or protein_id as fallback
+    5. 'hypothetical' as last resort
+    """
+    _get = (lambda k: _clean_label_value(row.get(k, ""))) if hasattr(row, "get") else (lambda k: "")
+
+    # 1. Readable gene / locus name
+    gene_name = _get("gene_name")
+    if gene_name and _is_gp_or_gene_name(gene_name):
+        return _short_label(gene_name, max_len=max_len)
+
+    # 2. Informative function (skip hypothetical / unknown / Prodigal-predicted)
+    func = _get("function")
+    func_lower = func.lower() if func else ""
+    is_informative_func = func and not any(
+        kw in func_lower for kw in ("hypothetical", "unknown", "uncharacterized",
+                                     "putative protein", "prodigal-predicted",
+                                     "six-frame orf")
+    )
+    if is_informative_func:
+        return _short_label(func, max_len=max_len)
+
+    # 3. gp-style name from other ID fields
+    for key in ("flank_gene_id", "protein_id"):
+        val = _get(key)
+        if val and _is_gp_or_gene_name(val):
+            return _short_label(val, max_len=max_len)
+
+    # 4. Any non-empty gene_name or protein_id
+    if gene_name:
+        return _short_label(gene_name, max_len=max_len)
+    for key in ("flank_gene_id", "protein_id"):
+        val = _get(key)
+        if val:
+            return _short_label(val, max_len=max_len)
+
+    # 5. Fall back to function (even if hypothetical) or hit_label
     if func:
         return _short_label(func, max_len=max_len)
     return _short_label(hit_label, max_len=max_len)
@@ -350,6 +404,7 @@ def _sixframe_orf_genes(record, min_aa: int = 30) -> list[dict]:
                             "strand": strand_txt,
                             "function": f"six-frame ORF ({aa_len} aa)",
                             "color": _function_color(gid, "hypothetical protein"),
+                            "protein_seq": aa,
                         })
                 aa_offset += len(aa) + 1
     genes.sort(key=lambda g: (g["start"], g["end"]))
@@ -400,6 +455,15 @@ def _prodigal_genes_for_record(record, cache_dir: Path, accession: str) -> list[
                     k, v = item.split("=", 1)
                     attrs[k] = v
             gid = attrs.get("ID") or attrs.get("locus_tag") or f"{record.id}_{start}_{end}"
+            # Translate CDS from the nucleotide record so clinker can draw links
+            try:
+                sub = record.seq[start - 1:end]
+                if strand == "-":
+                    sub = sub.reverse_complement()
+                trim = len(sub) - (len(sub) % 3)
+                protein_seq = str(sub[:trim].translate(to_stop=True))
+            except Exception:
+                protein_seq = ""
             genes.append({
                 "gene_name": gid,
                 "protein_id": gid,
@@ -408,6 +472,7 @@ def _prodigal_genes_for_record(record, cache_dir: Path, accession: str) -> list[
                 "strand": strand,
                 "function": "Prodigal-predicted CDS",
                 "color": _function_color(gid, "hypothetical protein"),
+                "protein_seq": protein_seq,
             })
     except Exception:
         return []
@@ -672,8 +737,20 @@ def _find_local_genbank(accession: str, search_dirs: list[Path]) -> Optional[Pat
     return None
 
 
-def _parse_neighborhood_from_record(record, seq_from: int, seq_to: int, flanks: int) -> list[dict]:
-    """Extract flanking CDS from a BioPython SeqRecord."""
+def _parse_neighborhood_from_record(
+    record, seq_from: int, seq_to: int, flanks: int,
+    hit_strand: str = "",
+    hit_protein_id: str = "",
+    hit_name: str = "hit gene",
+) -> list[dict]:
+    """Extract flanking CDS from a BioPython SeqRecord.
+
+    When *hit_strand* is provided, the hit gene is matched to the nearest
+    CDS on the **same strand**.  If no same-strand CDS overlaps the hit
+    coordinates, a synthetic "novel ORF" entry is inserted so the hit is
+    clearly distinguished from any overlapping gene on the opposite strand
+    (e.g., a small ORF encoded inside a large vRNAP on the other strand).
+    """
     cds_list: list[dict] = []
     for feat in record.features:
         if feat.type != "CDS":
@@ -686,6 +763,7 @@ def _parse_neighborhood_from_record(record, seq_from: int, seq_to: int, flanks: 
         function   = qualifiers.get("product", ["hypothetical protein"])[0]
         strand     = "+" if feat.location.strand == 1 else "-"
         color      = _function_color(gene_name, function)
+        protein_seq = qualifiers.get("translation", [""])[0]
         cds_list.append({
             "gene_name":  gene_name,
             "protein_id": protein_id,
@@ -694,15 +772,55 @@ def _parse_neighborhood_from_record(record, seq_from: int, seq_to: int, flanks: 
             "strand":     strand,
             "function":   function,
             "color":      color,
+            "protein_seq": protein_seq,
         })
 
     if not cds_list:
         return []
 
     cds_list.sort(key=lambda x: x["start"])
-    hit_mid  = (seq_from + seq_to) / 2.0
-    hit_idx  = min(range(len(cds_list)),
-                   key=lambda i: abs((cds_list[i]["start"] + cds_list[i]["end"]) / 2.0 - hit_mid))
+    hit_mid = (seq_from + seq_to) / 2.0
+
+    # ── Strand-aware hit matching ──────────────────────────────────────
+    # Prefer a CDS on the same strand that overlaps the hit coordinates.
+    # Fall back to closest-by-midpoint on any strand if none found.
+    hit_idx = None
+    if hit_strand:
+        # Same-strand overlapping CDS
+        same_strand_overlaps = [
+            i for i, g in enumerate(cds_list)
+            if g["strand"] == hit_strand
+            and g["start"] <= seq_to and g["end"] >= seq_from
+        ]
+        if same_strand_overlaps:
+            hit_idx = min(same_strand_overlaps,
+                          key=lambda i: abs((cds_list[i]["start"] + cds_list[i]["end"]) / 2.0 - hit_mid))
+        else:
+            # No same-strand CDS overlaps the hit → novel ORF inside
+            # an opposite-strand gene. Insert a synthetic entry so the
+            # hit is NOT confused with the overlapping gene.
+            novel_hit = {
+                "gene_name":  hit_name,
+                "protein_id": hit_protein_id or hit_name,
+                "start":      seq_from,
+                "end":        seq_to,
+                "strand":     hit_strand,
+                "function":   "novel ORF (opposite strand from annotated gene)",
+                "color":      "#E91E63",
+                "is_novel":   True,
+            }
+            # Find insertion point by coordinate
+            insert_at = 0
+            while insert_at < len(cds_list) and cds_list[insert_at]["start"] < seq_from:
+                insert_at += 1
+            cds_list.insert(insert_at, novel_hit)
+            hit_idx = insert_at
+
+    if hit_idx is None:
+        # Original behaviour: closest CDS by midpoint
+        hit_idx = min(range(len(cds_list)),
+                      key=lambda i: abs((cds_list[i]["start"] + cds_list[i]["end"]) / 2.0 - hit_mid))
+
     lo       = max(0, hit_idx - flanks)
     hi       = min(len(cds_list) - 1, hit_idx + flanks)
     window   = cds_list[lo: hi + 1]
@@ -721,6 +839,9 @@ def fetch_neighborhood_local(
     seq_to: int,
     flanks: int,
     search_dirs: list[Path],
+    hit_strand: str = "",
+    hit_protein_id: str = "",
+    hit_name: str = "hit gene",
 ) -> list[dict]:
     """Get flanking genes from a local GenBank file — no internet required."""
     try:
@@ -737,7 +858,12 @@ def fetch_neighborhood_local(
         opener = gzip.open if str(gb_path).endswith(".gz") else open
         with opener(gb_path, "rt") as fh:
             record = SeqIO.read(fh, "genbank")
-        genes = _parse_neighborhood_from_record(record, seq_from, seq_to, flanks)
+        genes = _parse_neighborhood_from_record(
+            record, seq_from, seq_to, flanks,
+            hit_strand=hit_strand,
+            hit_protein_id=hit_protein_id,
+            hit_name=hit_name,
+        )
         for g in genes:
             g["accession"] = accession
             g["source"]    = "local_genbank"
@@ -758,6 +884,8 @@ def fetch_neighborhood_entrez(
     strand: str,
     flanks: int,
     email: str,
+    hit_protein_id: str = "",
+    hit_name: str = "hit gene",
 ) -> list[dict]:
     """Fetch flanking genes from NCBI Entrez (requires internet + valid accession)."""
     try:
@@ -789,7 +917,12 @@ def fetch_neighborhood_entrez(
         print(f"WARNING [entrez] {accession}: {exc}", file=sys.stderr)
         return []
 
-    genes = _parse_neighborhood_from_record(record, seq_from, seq_to, flanks)
+    genes = _parse_neighborhood_from_record(
+        record, seq_from, seq_to, flanks,
+        hit_strand=strand,
+        hit_protein_id=hit_protein_id,
+        hit_name=hit_name,
+    )
     for g in genes:
         g["accession"] = accession
         g["source"]    = "ncbi_entrez"
@@ -990,6 +1123,7 @@ def build_synteny_table(
     _EMPTY_SYN = pd.DataFrame(columns=[
         "hit_protein_id", "accession", "flank_gene_id", "position_rel",
         "gene_name", "function", "strand", "start", "end", "color", "source",
+        "protein_seq",
     ])
     _EMPTY_REPORT = pd.DataFrame(columns=[
         "protein_id", "genome_id", "accession",
@@ -1081,7 +1215,11 @@ def build_synteny_table(
         seen_accessions.add(accession)
 
         # ── Mode 1: Local GenBank ───────────────────────────────────────────
-        genes = fetch_neighborhood_local(accession, seq_from, seq_to, flanks, gb_dirs)
+        genes = fetch_neighborhood_local(
+            accession, seq_from, seq_to, flanks, gb_dirs,
+            hit_strand=strand_val, hit_protein_id=protein_id,
+            hit_name=str(hit_row.get("hit_name", "hit gene") or "hit gene"),
+        )
         source_mode = "local_genbank" if genes else ""
 
         # ── Mode 2: NCBI Entrez ─────────────────────────────────────────────
@@ -1093,6 +1231,8 @@ def build_synteny_table(
                     nt_acc = prot_acc
             genes = fetch_neighborhood_entrez(
                 nt_acc, seq_from, seq_to, strand_val, flanks, email,
+                hit_protein_id=protein_id,
+                hit_name=str(hit_row.get("hit_name", "hit gene") or "hit gene"),
             )
             if genes:
                 source_mode = "ncbi_entrez"
@@ -1146,6 +1286,7 @@ def build_synteny_table(
                     "end":            g.get("end", 0),
                     "color":          g.get("color", _FUNCTION_COLORS["unknown"]),
                     "source":         g.get("source", source_mode or "unknown"),
+                    "protein_seq":    g.get("protein_seq", ""),
                 })
             report_rows.append({
                 "protein_id": protein_id, "genome_id": genome_id,
@@ -1325,6 +1466,11 @@ def _normalise_synteny_df(df):
     # accession
     if 'accession' not in df.columns:
         df['accession'] = df.get('genome_id', _pd.Series(['unknown'] * len(df)))
+    # protein_seq — optional; present when source GenBank had /translation
+    if 'protein_seq' not in df.columns:
+        df['protein_seq'] = ''
+    df['protein_seq'] = df['protein_seq'].fillna('').astype(str)
+
     # display_label: visible gene label used by static and interactive plots.
     # Fill blank/NaN gene names with useful identifiers so figures do not show
     # empty labels or literal "nan".
@@ -1855,6 +2001,9 @@ def build_neighborhood_genbanks(
                 qualifiers["gene"] = [str(row["gene_name"])]
             if int(row.get("position_rel", -99)) == 0:
                 qualifiers["note"] = ["HMM discovery hit"]
+            prot_seq = str(row.get("protein_seq", "") or "").strip()
+            if prot_seq:
+                qualifiers["translation"] = [prot_seq]
 
             feat = SeqFeature(
                 FeatureLocation(g_start, g_end, strand=strand_v),

@@ -800,8 +800,30 @@ def register_outputs(input, output, render, reactive, session, **kwargs):
         _log("synteny", f"Loading hits from {hits_path.name} …")
         try:
             import pandas as _pd
+            import re as _re
             hits_df = _pd.read_csv(hits_path, sep="\t")
             _log("synteny", f"  {len(hits_df)} hits loaded.")
+
+            # Ensure seq_from / seq_to / strand columns exist —
+            # extract from description field if missing (hmmsearch tblout format).
+            if "seq_from" not in hits_df.columns and "description" in hits_df.columns:
+                _coord_re = _re.compile(
+                    r"^\s*#\s*(\d+)\s*#\s*(\d+)\s*#\s*(-?1)"
+                )
+                coords = hits_df["description"].astype(str).apply(
+                    lambda d: _coord_re.match(d)
+                )
+                hits_df["seq_from"] = coords.apply(
+                    lambda m: int(m.group(1)) if m else 0
+                )
+                hits_df["seq_to"] = coords.apply(
+                    lambda m: int(m.group(2)) if m else 0
+                )
+                hits_df["strand"] = coords.apply(
+                    lambda m: ("-" if m.group(3) == "-1" else "+") if m else "+"
+                )
+                _log("synteny", f"  Extracted coordinates from description for "
+                     f"{(hits_df['seq_from'] > 0).sum()} hits.")
         except Exception as exc:
             _log("synteny", f"❌  Could not read hits: {exc}")
             return
