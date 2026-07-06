@@ -19,6 +19,13 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
+
+class DatabaseIntegrityError(RuntimeError):
+    """Raised when a downloaded or decompressed database file fails an
+    integrity check (e.g. a truncated/empty download or an empty
+    decompression result), so a corrupt DB is never used silently."""
+
+
 # ------------------------------------------------------------------
 # Constants
 # ------------------------------------------------------------------
@@ -315,6 +322,19 @@ async def download_database(
             try:
                 ok = await _download_single(url, dest_path, progress_callback, session)
                 if ok:
+                    # Integrity guard: a "successful" HTTP transfer can still
+                    # leave a zero-byte file (truncation, empty response).
+                    # Fail loudly rather than let a corrupt DB be used.
+                    downloaded_size = (
+                        dest_path.stat().st_size if dest_path.exists() else 0
+                    )
+                    if downloaded_size <= 0:
+                        logger.error(
+                            "Downloaded file is empty (truncated?): %s", dest_path
+                        )
+                        raise DatabaseIntegrityError(
+                            f"Downloaded database file is empty (truncated): {dest_path}"
+                        )
                     return True
                 logger.warning(
                     "Download attempt %d/%d failed for %s",
@@ -361,6 +381,14 @@ async def gunzip_file(gz_path: Path, out_path: Path) -> bool:
         logger.error("gunzip_file: source file not found: %s", gz_path)
         return False
 
+    # Integrity guard: a zero-byte .gz means the download was truncated;
+    # decompressing it would silently produce an empty/corrupt DB.
+    if gz_path.stat().st_size <= 0:
+        logger.error("gunzip_file: source file is empty (truncated?): %s", gz_path)
+        raise DatabaseIntegrityError(
+            f"Compressed database file is empty (truncated): {gz_path}"
+        )
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -379,6 +407,21 @@ async def gunzip_file(gz_path: Path, out_path: Path) -> bool:
             # Write in chunks to avoid one giant awaitable
             for offset in range(0, len(decompressed), _CHUNK_SIZE):
                 await out.write(decompressed[offset : offset + _CHUNK_SIZE])
+
+        # Integrity guard: an empty decompression result indicates a
+        # corrupt/truncated archive that gzip did not flag.
+        if not decompressed:
+            logger.error(
+                "gunzip_file: decompressed output is empty for %s", gz_path
+            )
+            if out_path.exists():
+                try:
+                    out_path.unlink()
+                except OSError:
+                    pass
+            raise DatabaseIntegrityError(
+                f"Decompressed database is empty (corrupt archive): {gz_path}"
+            )
 
         logger.info("Decompressed %s -> %s", gz_path.name, out_path.name)
         return True
@@ -417,9 +460,19 @@ async def gunzip_file_streaming(gz_path: Path, out_path: Path) -> bool:
         logger.error("gunzip_file_streaming: source not found: %s", gz_path)
         return False
 
+    # Integrity guard: a zero-byte .gz means the download was truncated.
+    if gz_path.stat().st_size <= 0:
+        logger.error(
+            "gunzip_file_streaming: source file is empty (truncated?): %s", gz_path
+        )
+        raise DatabaseIntegrityError(
+            f"Compressed database file is empty (truncated): {gz_path}"
+        )
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
+        written = 0
         async with aiofiles.open(out_path, "wb") as out_fh:
             with gzip.open(gz_path, "rb") as gz_fh:
                 while True:
@@ -427,6 +480,23 @@ async def gunzip_file_streaming(gz_path: Path, out_path: Path) -> bool:
                     if not chunk:
                         break
                     await out_fh.write(chunk)
+                    written += len(chunk)
+
+        # Integrity guard: an empty decompression result indicates a
+        # corrupt/truncated archive that gzip did not flag.
+        if written <= 0:
+            logger.error(
+                "gunzip_file_streaming: decompressed output is empty for %s", gz_path
+            )
+            if out_path.exists():
+                try:
+                    out_path.unlink()
+                except OSError:
+                    pass
+            raise DatabaseIntegrityError(
+                f"Decompressed database is empty (corrupt archive): {gz_path}"
+            )
+
         logger.info("Streaming-decompressed %s -> %s", gz_path.name, out_path.name)
         return True
 

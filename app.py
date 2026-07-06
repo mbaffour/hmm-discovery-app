@@ -12,9 +12,12 @@ Or with the helper script:
 """
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from pathlib import Path
+
+_startup_log = logging.getLogger(__name__)
 
 # Ensure our package is importable regardless of CWD
 APP_DIR = Path(__file__).parent.resolve()
@@ -26,7 +29,9 @@ try:
     from pipeline.utils import ensure_tools_on_path
     ensure_tools_on_path()
 except Exception:
-    pass
+    # Non-fatal: the app can still start, but log so the failure isn't
+    # silently swallowed (tools may then appear "missing" downstream).
+    _startup_log.exception("ensure_tools_on_path() failed during startup")
 
 from shiny import App, Inputs, Outputs, Session, reactive, render, ui
 import shinyswatch
